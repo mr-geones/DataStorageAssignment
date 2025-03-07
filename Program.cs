@@ -2,7 +2,6 @@
 using Microsoft.EntityFrameworkCore;
 using Data.Repositories;
 using Data.Entities;
-using Data.Data;
 using Data.Services;
 using Data.Interfaces;
 
@@ -10,18 +9,23 @@ namespace Data;
 
 class Program
 {
-    private static ProjectContext? _db;
+    private static ProjectContext? _database;
+
     private static IProjectService _projectService = null!;
 
-    // ---------------------------------------------------------
-    // 1. Helper methods for output
-    // ---------------------------------------------------------
+    private static ICustomerService _customerService = null!;
+
+    // =================================================================
+    // SECTION 1: DISPLAY HELPERS - Methods that format console output
+    // =================================================================
+
     private static void PrintHeader(string header)
     {
-        string line = new string('═', header.Length + 8);
-        Console.WriteLine($"╔{line}╗");
+        string borderLine = new string('═', header.Length + 8);
+
+        Console.WriteLine($"╔{borderLine}╗");
         Console.WriteLine($"║    {header}    ║");
-        Console.WriteLine($"╚{line}╝");
+        Console.WriteLine($"╚{borderLine}╝");
     }
 
     private static void PrintSectionTitle(string title)
@@ -35,34 +39,33 @@ class Program
         Console.WriteLine(text);
     }
 
-    // ---------------------------------------------------------
-    // 2. Main entry point
-    // ---------------------------------------------------------
+    // =================================================================
+    // SECTION 2: APPLICATION STARTUP - Main entry point and setup
+    // =================================================================
+
     static void Main(string[] args)
     {
-        // Build configuration
         var configuration = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json")
             .Build();
 
-        // Get connection string
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrEmpty(connectionString))
         {
-            throw new InvalidOperationException("Connection string 'DefaultConnection' is not found in the configuration.");
+            throw new InvalidOperationException("Connection string 'DefaultConnection' not found in configuration.");
         }
 
-        // Configure DbContext
         var optionsBuilder = new DbContextOptionsBuilder<ProjectContext>();
         optionsBuilder.UseSqlServer(connectionString);
 
-        // Initialize database context and ensure DB is created
-        _db = new ProjectContext(configuration); // Initialize _db here
-        _db.Database.EnsureCreated();
+        _database = new ProjectContext(configuration);
+        _database.Database.EnsureCreated();
 
-        // Initialize repository & service
-        IProjectRepository projectRepository = new ProjectRepository(_db);
+        IProjectRepository projectRepository = new ProjectRepository(_database);
         _projectService = new ProjectService(projectRepository);
+
+        ICustomerRepository customerRepository = new CustomerRepository(_database);
+        _customerService = new CustomerService(customerRepository);
 
         Console.WriteLine("Database is ready.");
 
@@ -72,9 +75,10 @@ class Program
         }
     }
 
-    // ---------------------------------------------------------
-    // 3. Main Menu
-    // ---------------------------------------------------------
+    // =================================================================
+    // SECTION 3: MENU SYSTEMS - Displaying and handling menu options
+    // =================================================================
+
     static void ShowMainMenu()
     {
         Console.Clear();
@@ -85,51 +89,81 @@ class Program
         PrintMenuItem(3, "Edit an Existing Project");
         PrintMenuItem(4, "Exit");
 
-        Console.Write("Select an option: ");
-        switch (Console.ReadLine()?.Trim())
+        // Get and process user input
+        Console.Write("\nSelect an option (1-4): ");
+        string? userChoice = Console.ReadLine()?.Trim();
+
+        switch (userChoice)
         {
-            case "1": ShowProjectsList(); break;
-            case "2": AddNewProject(); break;
-            case "3": EditProjectMenu(); break;
-            case "4": Environment.Exit(0); break;
+            case "1":
+                ShowProjectsList();
+                break;
+            case "2":
+                AddNewProject();
+                break;
+            case "3":
+                EditProjectMenu();
+                break;
+            case "4":
+                Environment.Exit(0);
+                break;
+            default:
+                Console.WriteLine("Invalid option. Press any key to try again...");
+                Console.ReadKey();
+                break;
         }
     }
 
-    // ---------------------------------------------------------
-    // 4. Show Projects List
-    // ---------------------------------------------------------
+    // =================================================================
+    // SECTION 4: PROJECT DISPLAY - Viewing project information
+    // =================================================================
+
     static void ShowProjectsList()
     {
         Console.Clear();
         PrintSectionTitle("List of Projects");
 
-        var projects = _projectService.GetAllProjects();
-        if (!projects.Any())
+        var allProjects = _projectService.GetAllProjects();
+
+        if (!allProjects.Any())
         {
-            Console.WriteLine("No projects found.");
+            Console.WriteLine("No projects found in the database.");
+            Console.WriteLine("\nPress any key to return to main menu...");
             Console.ReadKey();
             return;
         }
 
-        // Display all projects
-        foreach (var p in projects)
+        foreach (var project in allProjects)
         {
-            Console.Write($"{p.ProjectNumber} - ");
-            Console.WriteLine($"{p.Name} ({p.StartDate:yyyy-MM-dd} to {p.EndDate:yyyy-MM-dd}) - {p.Status}");
+            Console.Write($"{project.ProjectNumber} - ");
+            Console.WriteLine($"{project.Name} ({project.StartDate:yyyy-MM-dd} to {project.EndDate:yyyy-MM-dd}) - {project.Status}");
         }
 
         Console.Write("\nEnter project number to view details or 0 to go back: ");
-        var input = Console.ReadLine()?.Trim();
-        if (!string.IsNullOrEmpty(input) && input != "0")
+        var userInput = Console.ReadLine()?.Trim();
+
+        if (!string.IsNullOrEmpty(userInput) && userInput != "0")
         {
-            var project = _projectService.GetProject(input!); // Use null-forgiving operator
-            if (project != null) DisplayProjectDetails(project);
+            try
+            {
+                var selectedProject = _projectService.GetProject(userInput);
+                DisplayProjectDetails(selectedProject);
+            }
+            catch (InvalidOperationException)
+            {
+                Console.WriteLine($"Project with number '{userInput}' not found.");
+                Console.WriteLine("Press any key to continue...");
+                Console.ReadKey();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine("Press any key to continue...");
+                Console.ReadKey();
+            }
         }
     }
 
-    // ---------------------------------------------------------
-    // 5. Display Project Details
-    // ---------------------------------------------------------
     static void DisplayProjectDetails(ProjectEntity project)
     {
         Console.Clear();
@@ -144,8 +178,10 @@ class Program
         Console.Write("Manager: ");
         Console.WriteLine(project.ProjectManager);
 
+        // Get customer name from ID
+        var customer = _customerService.GetCustomer(project.CustomerId);
         Console.Write("Customer: ");
-        Console.WriteLine(project.Customer);
+        Console.WriteLine(customer.Name);
 
         Console.Write("Service: ");
         Console.WriteLine(project.Service);
@@ -156,65 +192,100 @@ class Program
         Console.Write("Status: ");
         Console.WriteLine(project.Status);
 
-        Console.Write("\nEdit Project? (Y/N): ");
-        if (Console.ReadLine()?.Trim().ToLower() == "y")
+        Console.Write("\nWould you like to edit this project? (Y/N): ");
+        if (Console.ReadLine()?.Trim().ToUpper() == "Y")
         {
             EditProject(project);
         }
     }
 
-    // ---------------------------------------------------------
-    // 6. Create a New Project
-    // ---------------------------------------------------------
+    // =================================================================
+    // SECTION 5: PROJECT CREATION - Adding new projects
+    // =================================================================
+
     static void AddNewProject()
     {
+        Console.Clear();
         PrintSectionTitle("Create a New Project");
 
-        var model = new ProjectInputModel
+        // Display available customers first
+        var customers = _customerService.GetAllCustomers();
+        Console.Write("\nCustomer Name: ");
+        string customerName = Console.ReadLine()?.Trim() ?? string.Empty;
+
+        // Check if customer exists, if not create one
+        int customerId;
+        var existingCustomer = _customerService.GetAllCustomers()
+            .FirstOrDefault(c => c.Name.Equals(customerName, StringComparison.OrdinalIgnoreCase));
+
+        if (existingCustomer != null)
         {
-            Name = GetInput("Name") ?? string.Empty,
+            customerId = existingCustomer.CustomerId;
+        }
+        else
+        {
+            // Create new customer
+            var newCustomer = _customerService.CreateCustomer(customerName);
+            customerId = newCustomer.CustomerId;
+        }
+
+        var projectData = new ProjectInputModel
+        {
+            Name = GetInput("Project Name") ?? string.Empty,
             StartDate = GetDateInput("Start Date (yyyy-MM-dd)"),
             EndDate = GetDateInput("End Date (yyyy-MM-dd)"),
-            ProjectManager = GetInput("Manager") ?? string.Empty,
-            Customer = GetInput("Customer") ?? string.Empty,
-            Service = GetInput("Service") ?? string.Empty,
+            ProjectManager = GetInput("Project Manager") ?? string.Empty,
+            CustomerId = customerId,
+            Service = GetInput("Service Provided") ?? string.Empty,
             TotalPrice = GetDecimalInput("Total Price (SEK)"),
             Status = GetStatusInput()
         };
 
-        if (_projectService.CreateProject(model) != null)
+        var createdProject = _projectService.CreateProject(projectData);
+
+        if (createdProject != null)
         {
-            Console.WriteLine("Project added. Press any key...");
-            Console.ReadKey();
+            Console.WriteLine($"Project successfully added with ID: {createdProject.ProjectNumber}");
+            Console.WriteLine("Press any key to continue...");
         }
         else
         {
-            Console.WriteLine("Required fields cannot be empty.");
-            Console.ReadKey();
+            Console.WriteLine("Failed to create project. Required fields cannot be empty.");
+            Console.WriteLine("Press any key to try again...");
         }
+
+        Console.ReadKey();
     }
 
+    // =================================================================
+    // SECTION 6: PROJECT EDITING - Modifying existing projects
+    // =================================================================
 
-    // ---------------------------------------------------------
-    // 7. Edit Existing Project
-    // ---------------------------------------------------------
     static void EditProjectMenu()
     {
         Console.Clear();
         PrintSectionTitle("Edit an Existing Project");
 
         Console.Write("Enter project number to edit: ");
-        var input = Console.ReadLine()?.Trim();
-        if (!string.IsNullOrEmpty(input))
+        var projectNumber = Console.ReadLine()?.Trim();
+
+        if (!string.IsNullOrEmpty(projectNumber))
         {
-            var project = _projectService.GetProject(input!); // Use null-forgiving operator
-            if (project != null)
+            try
             {
-                EditProject(project);
+                var projectToEdit = _projectService.GetProject(projectNumber);
+                EditProject(projectToEdit);
             }
-            else
+            catch (InvalidOperationException)
             {
-                Console.WriteLine("Project not found.");
+                Console.WriteLine($"Project with number '{projectNumber}' not found.");
+                Console.WriteLine("Press any key to continue...");
+                Console.ReadKey();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine("Press any key to continue...");
                 Console.ReadKey();
             }
         }
@@ -223,71 +294,135 @@ class Program
     static void EditProject(ProjectEntity project)
     {
         Console.Clear();
-        PrintSectionTitle($"Editing: {project.ProjectNumber}");
+        PrintSectionTitle($"Editing Project: {project.ProjectNumber}");
+
+        Console.WriteLine("Press Enter to keep current value, or type a new value.");
 
         project.Name = GetInput("Name", project.Name) ?? project.Name;
         project.StartDate = GetDateInput("Start Date", project.StartDate);
         project.EndDate = GetDateInput("End Date", project.EndDate);
         project.ProjectManager = GetInput("Manager", project.ProjectManager) ?? project.ProjectManager;
-        project.Customer = GetInput("Customer", project.Customer) ?? project.Customer;
+
+        // Display available customers
+        var currentCustomer = _customerService.GetCustomer(project.CustomerId);
+        Console.Write($"Customer Name [{currentCustomer.Name}]: ");
+        string customerNameInput = Console.ReadLine()?.Trim() ?? string.Empty;
+
+        if (!string.IsNullOrEmpty(customerNameInput))
+        {
+            // Check if customer exists, if not create one
+            var existingCustomer = _customerService.GetAllCustomers()
+                .FirstOrDefault(c => c.Name.Equals(customerNameInput, StringComparison.OrdinalIgnoreCase));
+
+            if (existingCustomer != null)
+            {
+                project.CustomerId = existingCustomer.CustomerId;
+            }
+            else
+            {
+                // Create new customer
+                var newCustomer = _customerService.CreateCustomer(customerNameInput);
+                project.CustomerId = newCustomer.CustomerId;
+            }
+        }
+
         project.Service = GetInput("Service", project.Service) ?? project.Service;
-        project.TotalPrice = GetDecimalInput("Price", project.TotalPrice);
+        project.TotalPrice = GetDecimalInput("Price (SEK)", project.TotalPrice);
         project.Status = GetStatusInput(project.Status);
 
-        Console.Write("Save? (y/n): ");
-        if (Console.ReadLine()?.Trim().ToLower() == "y")
+        Console.Write("\nSave these changes? (Y/N): ");
+        if (Console.ReadLine()?.Trim().ToUpper() == "Y")
         {
-            _db?.SaveChanges(); // Use null-conditional operator
-            Console.WriteLine("Saved.");
+            _database?.SaveChanges();
+            Console.WriteLine("Changes saved successfully.");
         }
+        else
+        {
+            Console.WriteLine("Changes were discarded.");
+        }
+
+        Console.WriteLine("Press any key to continue...");
         Console.ReadKey();
     }
 
-    // ---------------------------------------------------------
-    // 8. Input Helpers
-    // ---------------------------------------------------------
+    // =================================================================
+    // SECTION 7: INPUT HELPERS - Methods to collect and validate input
+    // =================================================================
+
     private static string? GetInput(string prompt, string? defaultValue = null)
     {
-        Console.Write($"{prompt}: ");
-        var input = Console.ReadLine()?.Trim();
-        return string.IsNullOrEmpty(input) ? defaultValue : input;
+        string displayPrompt = defaultValue != null
+            ? $"{prompt} [{defaultValue}]"
+            : prompt;
+
+        Console.Write($"{displayPrompt}: ");
+        var userInput = Console.ReadLine()?.Trim();
+
+        return string.IsNullOrEmpty(userInput) ? defaultValue : userInput;
     }
 
     private static DateTime GetDateInput(string prompt, DateTime? defaultValue = null)
     {
-        Console.Write($"{prompt}: ");
-        var input = Console.ReadLine()?.Trim();
+        string displayPrompt = defaultValue.HasValue
+            ? $"{prompt} [{defaultValue.Value:yyyy-MM-dd}]"
+            : prompt;
 
-        if (string.IsNullOrEmpty(input) && defaultValue.HasValue)
+        Console.Write($"{displayPrompt}: ");
+        var userInput = Console.ReadLine()?.Trim();
+
+        if (string.IsNullOrEmpty(userInput) && defaultValue.HasValue)
             return defaultValue.Value;
 
-        return DateTime.TryParse(input, out DateTime result)
-            ? result
-            : DateTime.Now;
+        if (DateTime.TryParse(userInput, out DateTime result))
+            return result;
+        else
+        {
+            Console.WriteLine("Invalid date format. Using today's date.");
+            return DateTime.Now;
+        }
     }
 
     private static decimal GetDecimalInput(string prompt, decimal? defaultValue = null)
     {
-        Console.Write($"{prompt}: ");
-        var input = Console.ReadLine()?.Trim();
+        string displayPrompt = defaultValue.HasValue
+            ? $"{prompt} [{defaultValue.Value}]"
+            : prompt;
 
-        if (string.IsNullOrEmpty(input) && defaultValue.HasValue)
+        Console.Write($"{displayPrompt}: ");
+        var userInput = Console.ReadLine()?.Trim();
+
+        // Return default if user just pressed Enter
+        if (string.IsNullOrEmpty(userInput) && defaultValue.HasValue)
             return defaultValue.Value;
 
-        return decimal.TryParse(input, out decimal result)
-            ? result
-            : 0;
+        // Try to parse the decimal, return 0 if invalid
+        if (decimal.TryParse(userInput, out decimal result))
+            return result;
+        else
+        {
+            Console.WriteLine("Invalid number format. Using 0.");
+            return 0;
+        }
     }
 
     private static ProjectStatus GetStatusInput(ProjectStatus? defaultValue = null)
     {
-        Console.Write("Status (1-NotStarted / 2-Ongoing / 3-Completed): ");
-        var input = Console.ReadLine()?.Trim();
+        string currentStatus = defaultValue.HasValue
+            ? $" [Current: {defaultValue.Value}]"
+            : "";
 
-        if (string.IsNullOrEmpty(input) && defaultValue.HasValue)
+        Console.WriteLine($"Project Status{currentStatus}:");
+        Console.WriteLine("1 - Not Started");
+        Console.WriteLine("2 - Ongoing");
+        Console.WriteLine("3 - Completed");
+
+        Console.Write("Enter your choice (1-3): ");
+        var userInput = Console.ReadLine()?.Trim();
+
+        if (string.IsNullOrEmpty(userInput) && defaultValue.HasValue)
             return defaultValue.Value;
 
-        return input switch
+        return userInput switch
         {
             "1" => ProjectStatus.NotStarted,
             "2" => ProjectStatus.Ongoing,

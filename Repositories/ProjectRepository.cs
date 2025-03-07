@@ -1,13 +1,17 @@
-﻿using Data.Data;
-using Data.Entities;
+﻿using Data.Entities;
 using Data.Interfaces;
 using Data.Services;
 
 namespace Data.Repositories;
 
-public class ProjectRepository(ProjectContext context) : IProjectRepository
+public class ProjectRepository : IProjectRepository
 {
-    private readonly ProjectContext _context = context;
+    private readonly ProjectContext _context;
+
+    public ProjectRepository(ProjectContext context)
+    {
+        _context = context;
+    }
 
     public IEnumerable<ProjectEntity> GetAllProjects()
     {
@@ -28,13 +32,15 @@ public class ProjectRepository(ProjectContext context) : IProjectRepository
             StartDate = model.StartDate,
             EndDate = model.EndDate,
             ProjectManager = model.ProjectManager,
-            Customer = model.Customer,
+            CustomerId = model.CustomerId,
             Service = model.Service,
             TotalPrice = model.TotalPrice,
             Status = model.Status
         };
+
         _context.Projects.Add(project);
         _context.SaveChanges();
+
         return project;
     }
 

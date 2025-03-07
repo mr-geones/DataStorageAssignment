@@ -6,7 +6,8 @@ namespace Data.Interfaces;
 public interface IProjectRepository
 {
     IEnumerable<ProjectEntity> GetAllProjects();
-    ProjectEntity? GetProject(string projectNumber); // Updated to match the implementation
+
+    ProjectEntity? GetProject(string projectNumber);
+
     ProjectEntity CreateProject(ProjectInputModel model);
 }
-
